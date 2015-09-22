@@ -1,0 +1,512 @@
+//----------------------------------------------------------------------------
+// C main line
+//----------------------------------------------------------------------------
+
+#include <m8c.h>        // part specific constants and macros
+#include "PSoCAPI.h"    // PSoC API definitions for all User Modules
+
+#define nodeid 1
+#define GREEN_LED_BLINK {GREEN_LED_On(); SoftDelay50msec(); SoftDelay50msec(); GREEN_LED_Off();}  
+#define RED_LED_BLINK   {RED_LED_On(); SoftDelay50msec(); SoftDelay50msec(); RED_LED_Off();}  
+
+
+void SoftDelay50msec(void);
+void Init(void);  
+void spitransmit(BYTE);
+void broadcastEnergy(int);
+void EnergyCal(BYTE *);
+void ClusterHeadBroadcast(int);
+void TransmitReq(BYTE,BYTE);
+void ReceiveReq(BYTE);
+void TransmitEnergy(BYTE,BYTE);
+void ReceiveEnergy(BYTE);
+void StrEnergy(void);
+void Transmit(BYTE,BYTE);
+void Receive(BYTE);
+void nodefunction(void);
+void RcvBroadcast(BYTE);
+void SendAck(BYTE,BYTE);
+void ReceiveAck(void);
+void ClusterHeadInfo(void);
+void CHbroadcast(int);
+void RcvCHinfo(BYTE);
+
+BYTE E1=0x10,E2=0x20,E3=0x30,TBuf[5],RBuf[5];
+BYTE a[3];
+BYTE RxLen; 
+int oldCH,CH=1,i=1,j,temp;
+
+void main(void)
+{ 
+	M8C_EnableIntMask(INT_MSK0, INT_MSK0_GPIO);	  // Enable the GPIO interrupt.  
+    M8C_EnableGInt;                               // Enable interrupts.  
+	SPIM_1_Start(0x80);
+	//RED_LED_On();
+	//GREEN_LED_On();
+	a[0]=((BYTE)nodeid)*(0x10);	
+	Init();
+	
+	//while(1)
+	//{
+		if (CH==nodeid)
+		{
+		CHbroadcast(CH);
+		broadcastEnergy(CH);	
+		EnergyCal(&a[0]);
+		ClusterHeadInfo();
+		ClusterHeadBroadcast(CH); 
+		ReceiveAck();
+		}
+		else
+		{
+		nodefunction();
+		}
+		//DataMode();
+	//}	
+}
+
+//----------------------------------------------
+void CHbroadcast(int CH)
+{
+switch(CH)				
+	{
+	case 1:
+	
+	Transmit(0x20,0x66);			//transmit adv and receive advt
+	spitransmit(0x88);
+	//SoftDelay50msec(); SoftDelay50msec();	
+	Receive(0x10);	
+	Transmit(0x30,0x66);
+	spitransmit(0x88);
+	//SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x10);
+	break;
+	
+	case 2:
+	Transmit(0x10,0x66);
+	//SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x20);
+	Transmit(0x30,0x66);
+	//SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x20);
+	break;
+	
+	case 3:
+	Transmit(0x20,0x66);
+	//SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x30);	
+	Transmit(0x10,0x66);
+	//SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x30);
+	break;
+	}
+}
+
+
+void broadcastEnergy(int CH)
+{
+	switch(CH)				
+	{
+	case 1:
+	TransmitReq(0x20,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x10);	
+	TransmitReq(0x30,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x10);
+	break;
+	
+	case 2:
+	TransmitReq(0x10,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x20);
+	TransmitReq(0x30,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x20);
+	break;
+	
+	case 3:
+	TransmitReq(0x20,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x30);	
+	TransmitReq(0x10,0x55);
+	//SoftDelay50msec(); SoftDelay50msec();
+	ReceiveEnergy(0x30);
+	break;
+	}
+
+}
+
+void EnergyCal(BYTE b[])
+{
+
+	for(j=0;j<=1;j++)
+	{
+		if (b[j]>b[j+1])
+		{
+		temp=b[j+1];
+		b[j+1]=b[j];
+		b[j]=temp;
+		}
+	}
+	oldCH=CH;
+	if(b[2]==E1)
+	CH=1;
+	else if(b[2]==E2)
+	CH=2;
+	else
+	CH=3;
+	spitransmit(0x88);
+	spitransmit(CH);
+	GREEN_LED_On();
+}
+
+
+void ClusterHeadInfo(void)
+{
+	if (oldCH==CH)
+	 ;
+	else
+	{
+		if (CH==1)
+		{
+		Transmit(0x10,0x01);
+		}
+		else if (CH==2)
+		{
+		Transmit(0x20,0x02);
+		}
+		else
+		{		
+		Transmit(0x30,0x03);
+		}
+	}
+}
+
+void ClusterHeadBroadcast(int var)
+{
+	if(var == 1)
+	{
+	Transmit(0x20,0x99);
+	Transmit(0x30,0x99);
+	}	
+	else if(var == 2)
+	{
+	Transmit(0x10,0x99);	
+	Transmit(0x30,0x99);	
+	}	
+	else
+	{
+	Transmit(0x10,0x99);
+	Transmit(0x20,0x99);
+	}
+} 
+
+void ReceiveAck(void)
+{
+	if(CH==1)
+	{
+	Receive(0x10);
+	SoftDelay50msec(); SoftDelay50msec();
+	Receive(0x10);
+	}
+	else if (CH==2)
+	{
+	Receive(0x20);
+	Receive(0x20);
+	}
+	else
+	{
+	Receive(0x30);
+	Receive(0x30);
+	}
+}
+
+//-------------------------------------------------------------------------------
+//Node functionality
+//-------------------------------------------------------------------------------
+
+void nodefunction(void)
+{
+switch(CH)				
+	{
+	case 1:
+		if (nodeid==2)
+		{
+		RcvBroadcast(0x20);
+		spitransmit(0x88);
+		SendAck(0x10,0x75);	
+		spitransmit(0x88);
+		ReceiveReq(0x20);		
+		TransmitEnergy(0x10,0x20);
+		RcvCHinfo(0x20);			
+		}
+		else if (nodeid==3)
+		{
+		RcvBroadcast(0x30);
+		spitransmit(0x88);
+		SendAck(0x10,0x75);
+		spitransmit(0x88);
+		ReceiveReq(0x30);
+		TransmitEnergy(0x10,0x30);
+		RcvCHinfo(0x30);				
+		}
+	break;
+	
+	case 2:
+		if (nodeid==1)
+		{
+		RcvBroadcast(0x10);
+		SendAck(0x20,0x75);
+		ReceiveReq(0x10);
+		TransmitEnergy(0x20,0x10);
+		RcvCHinfo(0x10);		
+		}
+		else if (nodeid==3)
+		{
+		RcvBroadcast(0x30);
+		SendAck(0x20,0x75);
+		ReceiveReq(0x30);
+		TransmitEnergy(0x20,0x30);
+		RcvCHinfo(0x30);		
+		}
+	break;
+	
+	case 3:
+		if (nodeid==2)
+		{
+		RcvBroadcast(0x20);
+		SendAck(0x30,0x75);
+		ReceiveReq(0x20);
+		TransmitEnergy(0x30,0x20);
+		RcvCHinfo(0x20);		
+		}
+		else if (nodeid==1)
+		{
+		RcvBroadcast(0x10);				
+		SendAck(0x30,0x75);
+		ReceiveReq(0x10);
+		TransmitEnergy(0x30,0x10);
+		RcvCHinfo(0x10);		
+		}
+	break;
+	
+	}
+}
+
+//-------------------------------------------------------------------  
+// Transmit() is the packet transmission handler.  
+//-------------------------------------------------------------------  
+void TransmitReq(BYTE freq,BYTE pkt) 
+{
+	Transmit(freq,pkt);  // Complete the radio transaction.  
+}  
+ 
+//-------------------------------------------------------------------  
+// Receive() is the packet reception handler.  
+//-------------------------------------------------------------------  
+void ReceiveReq(BYTE Freq)  
+{      
+	Receive(Freq);
+	spitransmit(0x88);
+	
+ }
+
+void TransmitEnergy(BYTE freq,BYTE valenergy)
+{
+Transmit(freq,valenergy);
+spitransmit(0x88);
+}
+
+void ReceiveEnergy(BYTE freq)
+{
+Receive(freq); 
+spitransmit(RBuf[0]);
+StrEnergy();
+}
+
+
+void RcvCHinfo(BYTE freq)
+{
+Receive(freq);
+if (RBuf[0]==(BYTE)nodeid)
+CH=nodeid;
+}
+
+
+void RcvBroadcast(BYTE freq)
+{
+Receive(freq);
+spitransmit(0x88);
+}
+//sendack
+
+void SendAck(BYTE freq,BYTE ack)
+{
+Transmit(freq,ack);
+spitransmit(0x88);
+}
+
+
+void StrEnergy(void)
+{
+a[i] = RBuf[0];
+i++;
+}
+
+
+
+void spitransmit(BYTE trans)
+{	
+	int i=0;
+	CYFISPI_DisableInt();  
+	PRT0DR &= 0xDF ;
+	for(i=0;i<10;i++)
+	asm("NOP");
+	/* Ensure the transmit buffer is free */
+	while( ! (SPIM_1_bReadStatus() & SPIM_1_SPIM_TX_BUFFER_EMPTY ) );
+	SPIM_1_SendTxData(trans); /* load the next byte */
+	while( ! (SPIM_1_bReadStatus() & SPIM_1_SPIM_SPI_COMPLETE ) );
+	PRT0DR |= 0x20 ;
+	CYFISPI_EnableInt();  
+	//for(i=0;i<10000;i++)
+	//asm("NOP");
+}
+
+
+//-------------------------------------------------------------------------------------------------
+//transmit
+//-------------------------------------------------------------------------------------------------
+void Transmit(BYTE freq,BYTE pkt) 
+{
+	
+	TBuf[0]=pkt;
+	CYFISPI_SetPtr((BYTE *)&TBuf);  // Provide the radio data buffer parameters  
+   	CYFISPI_SetLength(sizeof(TBuf));   
+	CYFISPI_SetSopPnCode(0);  	//Pn CODE
+	CYFISPI_SetChannel(0x10);  	//set the channel
+	CYFISPI_SetFrequency(freq); //Setting the frequency
+    CYFISPI_StartTransmit(3,1);                              // Initiate transmission.  
+   
+	while(1) {  
+        
+			if(CYFISPI_State & CYFISPI_COMPLETE) {             			 // Check for completion.  
+           			 if(!(CYFISPI_State & CYFISPI_ERROR)) 
+					 {             										 // Check for error.  
+                 	GREEN_LED_On();
+					//Handle successful packet transmission here  
+            		 }   
+                     else 
+					 {  
+                	//RED_LED_On();										 //Handle failed packet transmission here  
+                     }
+              break;    
+             
+        }  
+    }  
+    CYFISPI_EndTransmit(); // Complete the radio transaction.  
+	
+}  
+
+//----------------------------------------------------------------------------------------------
+//receive 
+//----------------------------------------------------------------------------------------------
+
+void Receive(BYTE Freq)  
+{      
+	   // Provide the radio data buffer parameters  
+	RED_LED_On();                                             // Indicate that the radio is listening.  
+	CYFISPI_SetPtr((BYTE *)&RBuf);  // Provide the radio data buffer parameters  
+    CYFISPI_SetSopPnCode(0);  	//Pn CODE
+	CYFISPI_SetChannel(0x10);  	//set the channel
+	CYFISPI_SetFrequency(Freq); //Setting the frequency
+	
+    CYFISPI_StartReceive();                                   // Start listening for a packet.  
+  
+    while(1) {  
+	
+        if(CYFISPI_State & CYFISPI_COMPLETE) {                // Check to see if the radio stopped listening.  
+            RxLen = CYFISPI_EndReceive();                     // Complete the radio transaction.  
+              
+            if(!(CYFISPI_State & CYFISPI_ERROR)) {            // Check for error.  
+                // Handle a successful packet reception here  
+                GREEN_LED_BLINK; 
+            }  
+			
+          break;  
+        }
+    }
+                 
+    RED_LED_Off();                                             // Indicate that the radio is not listening.  
+}
+
+
+
+//----------------------------
+//
+//-------------------
+void Init(void)  
+{  
+    // Visually indicate start of application to the user  
+    //RED_LED_On();  
+    //GREEN_LED_On();  
+      
+    if (!CYFISPI_Start()) 
+	{                 // Start the radio initialization and check for error. Handle failed initialization here.  
+            while(1) 
+			{  
+            RED_LED_BLINK;  
+            SoftDelay50msec();  
+			}
+         
+    }      
+  
+    // Complete the radio initialization  
+    CYFISPI_ForceState(0);                  // Put the radio to sleep immediately.  
+    CYFISPI_Write(0x0B,0x20);               // Disable the PMU.  
+    CYFISPI_EnableInt();  
+      
+  
+//    SW1_DISABLE_INT;                              // Disable SW1's ability to generate an interrupt.  
+    M8C_EnableIntMask(INT_MSK0, INT_MSK0_GPIO);	  // Enable the GPIO interrupt.  
+    M8C_EnableGInt;                               // Enable interrupts.  
+  
+    // Indicate successful initialization.  
+    RED_LED_Off();  
+    //GREEN_LED_Off();
+	SoftDelay50msec();
+}  
+
+
+//---------------------------
+
+void SoftDelay50msec(void)  
+{  
+    unsigned int i;  
+	  
+    // Busy loop to delay approximately 50 ms on a 12 MHz CPU.  
+    for(i = 0; i < 23100; i++) asm("NOP");  
+}  
+
+//-------------------------------------------------------
+//void AckToCH(BYTE CH)
+//{
+//	switch(CH)
+//	{
+//	case 1:	
+//	{
+//	Transmit(0x10,0x89);
+//	Receive(0x10);
+//	}
+//	if(CH==2)
+//	{
+//	Transmit(0x20,0x89);
+//	Receive(0x20);
+//	}
+//	else
+//	{
+//	Transmit(0x30,0x89);
+//	Receive(0x30);
+//	}
+//}
+//--------------------------------------------------------------
